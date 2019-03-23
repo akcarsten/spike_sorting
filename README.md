@@ -4,10 +4,12 @@
 This is the Python Jupyter Notebook for the Medium articles ([X](https://towardsdatascience.com/using-signal-processing-to-extract-neural-events-in-python-964437dc7c0) and [Y](https://towardsdatascience.com/whos-talking-using-k-means-clustering-to-sort-neural-events-in-python-e7a8a76f316)) on how to use signal processing techniques and K-means clustering to sort spikes.
 
 ### Part I
-Code to read data from a .ncs file and extract the spike channel form the raw braod band signal through bandpass filtering. Also includes a function to extract and align spikes from the signal.
+
+Code to read data from a .ncs file and extract the spike channel form the raw broad band signal through bandpass filtering. Also includes a function to extract and align spikes from the signal.
 
 
 ### Part II
+
 Code to perform PCA on the extracted spike waveforms. Followed by a function that does K-means clustering on the PCA data to determine the number of clusters in the data and average waveforms according to their cluster number.
 
 First we start with importing the libraries for reading in the data and processing it.
@@ -22,7 +24,7 @@ import matplotlib.pyplot as plt
 %matplotlib inline
 ```
 
-Before we can start looking at the data (https://www2.le.ac.uk/centres/csn/software) we need to write a function to import the .ncs data format. You can check out the organization of the data format on the companies web page (https://neuralynx.com/software/NeuralynxDataFileFormats.pdf). The information provided there is the basis for the import routine below.
+Before we can start looking at the data [Dataset # 1: Human single-cell recording](https://www2.le.ac.uk/centres/csn/software) we need to write a function to import the .ncs data format. You can check out the organization of the data format on the companies web page (https://neuralynx.com/software/NeuralynxDataFileFormats.pdf). The information provided there is the basis for the import routine below.
 
 
 ```python
@@ -79,6 +81,7 @@ plt.show()
 # Part I
 
 ## Bandpass filter the data
+
 As we can see the signal has strong 60Hz noise in it. The function below will bandpass filter the signal to exclude the 60Hz domain.
 
 
@@ -129,6 +132,7 @@ plt.show()
 
 
 ## Extract spikes from the filtered signal
+
 Now that we have a clean spike channel we can identify and extract spikes. The following function does that for us. It take five input arguments. 1) the filtered data 2) the number of samples or window which should be extracted from the signal 3) the threshold factor (mean(signal)*tf) 4) an offset expressed in number of samples which shifts the maximum peak from the center 5) the upper threshold which excludes data points above this limit to avoid extracting artifacts.
 
 
@@ -197,6 +201,7 @@ plt.show()
 # Part II
 
 ## Reducing the number of dimensions with PCA
+
 To cluster the waveforms we need some features to work with. A feature could be for example the peak amplitude of the spike or the width of the waveform. Another way to go is to use the principal components of the waveforms. Principal component analysis (PCA) is a dimensionality reduction method which requires normalized data. Here we will use Scikit Learn for both the normalization and the PCA. We will not go into the details of PCA here since the focus is the clustering.
 
 
