@@ -4,12 +4,10 @@
 This is the Python Jupyter Notebook for the Medium articles ([X](https://towardsdatascience.com/using-signal-processing-to-extract-neural-events-in-python-964437dc7c0) and [Y](https://towardsdatascience.com/whos-talking-using-k-means-clustering-to-sort-neural-events-in-python-e7a8a76f316)) on how to use signal processing techniques and K-means clustering to sort spikes.
 
 ### Part I
-
-Code to read data from a .ncs file and extract the spike channel form the raw broad band signal through bandpass filtering. Also includes a function to extract and align spikes from the signal.
+Code to read data from a .ncs file and extract the spike channel form the raw braod band signal through bandpass filtering. Also includes a function to extract and align spikes from the signal.
 
 
 ### Part II
-
 Code to perform PCA on the extracted spike waveforms. Followed by a function that does K-means clustering on the PCA data to determine the number of clusters in the data and average waveforms according to their cluster number.
 
 First we start with importing the libraries for reading in the data and processing it.
@@ -24,7 +22,7 @@ import matplotlib.pyplot as plt
 %matplotlib inline
 ```
 
-Before we can start looking at the data [Dataset # 1: Human single-cell recording](https://www2.le.ac.uk/centres/csn/software) we need to write a function to import the .ncs data format. You can check out the organization of the data format on the companies web page (https://neuralynx.com/software/NeuralynxDataFileFormats.pdf). The information provided there is the basis for the import routine below.
+Before we can start looking at the data (https://www2.le.ac.uk/centres/csn/software) we need to write a function to import the .ncs data format. You can check out the organization of the data format on the companies web page (https://neuralynx.com/software/NeuralynxDataFileFormats.pdf). The information provided there is the basis for the import routine below.
 
 
 ```python
@@ -75,13 +73,12 @@ plt.show()
 ```
 
 
-![png](images/Spike_sorting_3_0.png)
+![png](images/output_3_0.png)
 
 
 # Part I
 
 ## Bandpass filter the data
-
 As we can see the signal has strong 60Hz noise in it. The function below will bandpass filter the signal to exclude the 60Hz domain.
 
 
@@ -128,12 +125,164 @@ plt.show()
 ```
 
 
-![png](images/Spike_sorting_7_0.png)
+![png](images/output_7_0.png)
 
+
+## Interlude: LFP data processing
+
+Here we will have a brief look at the LFP signal, the low frequency part of the recording. It is not relevant for the spike extraction or sorting so you might skip this section. However it will give you a better understanding about the nature of the recorded data.
+
+
+```python
+from scipy import signal
+
+# First lowpass filter the data to get the LFP signal
+lfp_data = filter_data(data, low=1, high=300, sf=sf)
+```
+
+Because the LFP signal does not contain high frequency components anymore the original sampling rate can be reduced. This will lower the size of the data and speed up calculations. Therefore we define a short down-sampling function.
+
+
+```python
+def downsample_data(data, sf, target_sf):
+    factor = sf/target_sf
+    if factor <= 10:
+        data_down = signal.decimate(data, factor)
+    else:
+        factor = 10
+        data_down = data
+        while factor > 1:
+            data_down = signal.decimate(data_down, factor)
+            sf = sf/factor
+            factor = int(min([10, sf/target_sf]))
+
+    return data_down, sf
+```
+
+
+```python
+# Now we use the above function to downsample the signal.
+lfp_data, sf_lfp = downsample_data(lfp_data, sf=sf, target_sf=600)
+
+# Lets have a look at the downsampled LFP signal
+fig, ax = plt.subplots(figsize=(15, 5))
+
+ax.plot(lfp_data[0:int(sf_lfp)])
+ax.set_title('LFP signal', fontsize=23)
+ax.set_xlim([0, sf_lfp])
+ax.set_xlabel('sample #', fontsize=20)
+ax.set_ylabel('amplitude [uV]', fontsize=20)
+plt.show()
+```
+
+
+![png](images/output_12_0.png)
+
+
+As we already saw previously the signal is dominated by a strong 60Hz noise. If we wanted to continue working with the LFP signal this would be a problem. One way of dealing with this issue is to apply a notch filter that removes the 60Hz noise.
+The code below sets up such a filter.
+
+
+```python
+f0 = 60.0  # Frequency to be removed from signal (Hz)
+w0 = f0/(sf_lfp/2)  # Normalized Frequency
+Q = 30 # Quality factor
+
+# Design notch filter
+b, a = signal.iirnotch(w0, Q)
+
+# Filter signal
+clean_data = signal.lfilter(b, a, lfp_data)
+```
+
+Now before we apply the filter lets briefly check the filter properties. Mainly we are interested in how *sharp* the filter cuts the 60Hz and how does it influence the phase of the signal. Because in the end we only want to remove the noise and not alter the signal in other frequency domains.
+
+
+```python
+# Frequency response
+w, h = signal.freqz(b, a)
+
+# Generate frequency axis
+freq = w*sf_lfp/(2*np.pi)
+
+# Plot
+fig, ax = plt.subplots(2, 1, figsize=(8, 6))
+ax[0].plot(freq, 20*np.log10(abs(h)), color='blue')
+ax[0].set_title("Frequency Response")
+ax[0].set_ylabel("Amplitude (dB)", color='blue')
+ax[0].set_xlim([0, 100])
+ax[0].grid()
+
+ax[1].plot(freq, np.unwrap(np.angle(h))*180/np.pi, color='green')
+ax[1].set_ylabel("Angle (degrees)", color='green')
+ax[1].set_xlabel("Frequency (Hz)")
+ax[1].set_xlim([0, 100])
+ax[1].set_yticks([-90, -60, -30, 0, 30, 60, 90])
+#ax[1].set_ylim([-90, 90])
+ax[1].grid()
+plt.show()
+```
+
+
+![png](images/output_16_0.png)
+
+
+Ok seems like the filter should work. You can play around with the settings to see how the filter behaviour changes. But now lets see how the filtered sigal compares to the original LFP signal.
+
+
+```python
+fig, ax = plt.subplots(1, 1, figsize=(15, 5))
+ax.plot(lfp_data[0:int(sf_lfp)], label='original data')
+ax.plot(clean_data[0:int(sf_lfp)], label='filtered data')
+ax.set_title('LFP signal', fontsize=23)
+ax.set_xlim([0, sf_lfp])
+ax.set_xlabel('sample #', fontsize=20)
+ax.set_ylabel('amplitude [uV]', fontsize=20)
+
+plt.legend()
+plt.show()
+```
+
+
+![png](images/output_18_0.png)
+
+
+This looks much better! As we can see the 60Hz is removed and we can now see other frequency signals riding on the very low frequency components.
+Now finally, to check the effect of our notch filtering lets calculate the power spectra of the filtered and un-filtered signals.
+
+
+```python
+f, clean_data_power = signal.welch(clean_data, fs=sf_lfp, window='hanning', nperseg=2048, scaling='spectrum')
+f, lfp_power = signal.welch(lfp_data, fs=sf_lfp, window='hanning', nperseg=2048, scaling='spectrum')
+
+fig, ax = plt.subplots(1, 1, figsize=(15, 5))
+ax.semilogy(f, clean_data_power, label='60Hz cleaned')
+ax.semilogy(f, lfp_power, label='original LFP signal')
+ax.set_title('un-filtered and filtered power spectra', fontsize=23)
+ax.set_xlim([0, 100])
+ax.set_ylim([.3, 6500])
+ax.set_xlabel('frequency [Hz]', fontsize=20)
+ax.set_ylabel('PSD [V**2/Hz]', fontsize=20)
+ax.legend()
+
+plt.show()
+```
+
+
+![png](images/output_20_0.png)
+
+
+Clearly the filter removed the 60Hz band in the LFP and left the other frequencies intact.
+There are actually now many things we could do now with the LFP signal but this is a different topic. So lets get back to the spike channel and see how we can extract spikes from there.
 
 ## Extract spikes from the filtered signal
+Now that we have a clean spike channel we can identify and extract spikes. The following function does that for us. It take five input arguments:
 
-Now that we have a clean spike channel we can identify and extract spikes. The following function does that for us. It take five input arguments. 1) the filtered data 2) the number of samples or window which should be extracted from the signal 3) the threshold factor (mean(signal)*tf) 4) an offset expressed in number of samples which shifts the maximum peak from the center 5) the upper threshold which excludes data points above this limit to avoid extracting artifacts.
+1. the filtered data
+1. the number of samples or window which should be extracted from the signal
+1. the threshold factor (mean(signal)*tf)
+1. an offset expressed in number of samples which shifts the maximum peak from the center
+1. the upper threshold which excludes data points above this limit to avoid extracting artifacts.
 
 
 ```python
@@ -195,13 +344,12 @@ plt.show()
 ```
 
 
-![png](images/Spike_sorting_11_0.png)
+![png](images/output_25_0.png)
 
 
 # Part II
 
 ## Reducing the number of dimensions with PCA
-
 To cluster the waveforms we need some features to work with. A feature could be for example the peak amplitude of the spike or the width of the waveform. Another way to go is to use the principal components of the waveforms. Principal component analysis (PCA) is a dimensionality reduction method which requires normalized data. Here we will use Scikit Learn for both the normalization and the PCA. We will not go into the details of PCA here since the focus is the clustering.
 
 
@@ -229,7 +377,7 @@ plt.show()
 ```
 
 
-![png](images/Spike_sorting_13_0.png)
+![png](images/output_27_0.png)
 
 
 The way we will implement K-means is quite straight forward. First, we choose a number of K random datapoints from our sample. These datapoints represent the cluster centers and their number equals the number of clusters. Next, we will calculate the Euclidean distance between all of the random cluster centers and any other datapoint. Then we assign each datapoint to the cluster center closest to it. Obviously doing all of this with random datapoints will not give us a good clustering result. So, we start over again. But this time we don't use random datapoints as cluster centers. Instead we calculate the actual cluster centers based on the previous random assignments and start the process again… and again… and again. With every iteration the datapoints that switch clusters will go down and we will arrive at a (hopefully) global optimum.
@@ -294,7 +442,7 @@ plt.show()
 ```
 
 
-![png](images/Spike_sorting_17_0.png)
+![png](images/output_31_0.png)
 
 
 So, let’s see what we get if we run the K-means algorithm with 6 cluster. Probably we could also go with 4 but let’s check the results with 6 first.
@@ -329,7 +477,7 @@ plt.show()
 ```
 
 
-![png](images/Spike_sorting_19_0.png)
+![png](images/output_33_0.png)
 
 
 Looking at above results it seems we chose to many clusters. The waveforms plot indicates that we may have extracted spikes from three different sources. Clusters 0, 1, 3 and 4 look like they have the same origin, while clusters 0 and 5 seem to be separate neurons. So, lets combine clusters 0, 1, 3 and 4.
@@ -369,4 +517,10 @@ plt.show()
 ```
 
 
-![png](images/Spike_sorting_21_0.png)
+![png](images/output_35_0.png)
+
+
+
+```python
+
+```
